@@ -13,6 +13,5 @@ func main() {
 	for i := 0; i < 100; i++ {
 		go worker(i)
 	}
-	time.Sleep(1 * time.Second)
 }
 
