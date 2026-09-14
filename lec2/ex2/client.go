@@ -25,13 +25,13 @@ func main() {
 	for i := 0; i < 1000; i++ {
 		wg.Add(1)
 		go func() { // anonymous function
-			defer wg.Done() // at end of function, decrement 1 from wg
 			args := Args{Message:"Hi from thread: " + strconv.Itoa(i)}
 			var res int
 			err := client.Call("MessageService.AddMessage", &args, &res)
 			if err != nil {
 				log.Fatal("MessageService.AddMessage error:", err)
 			}
+			wg.Done()
 		}()
 	}
 
