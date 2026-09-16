@@ -127,7 +127,7 @@ func (db *Database) get_all_ratings(books []Book) Ratings {
 
 
 func is_good_match(book Book, profile Profile) bool {
-	time.Sleep(time.Millisecond*100)
+	time.Sleep(time.Millisecond*1)
 	return book.MinAge <= profile.mean &&
 		book.Stars >= profile.median-0.5 &&
 		book.Length <= profile.p99th*1.25
