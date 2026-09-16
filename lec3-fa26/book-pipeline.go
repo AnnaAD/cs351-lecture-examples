@@ -162,7 +162,7 @@ func build_profile(ratings Ratings) Profile {
 }
 
 func get_recommendations(profile Profile) []string {
-	outputCh := make(chan string, 100) // small buffer reduces blocking; unbuffered also works
+	outputCh := make(chan []string, 10) // small buffer reduces blocking; unbuffered also works
 	numWorkers := 12
 	n := len(DB.all_books)
 	batch := (n + numWorkers - 1) / numWorkers // ceiling division: at most 12 chunks
@@ -174,12 +174,14 @@ func get_recommendations(profile Profile) []string {
 		wg.Add(1)
 		go func(s, e int) {
 			defer wg.Done()
+			output := make([]string,0)
 			for i := s; i < e; i++ {
 				book := DB.all_books[i]
 				if is_good_match(book, profile) {
-					outputCh <- book.Title
+					output = append(output, book.Title)
 				}
 			}
+			outputCh <-output
 		}(start, end)
 	}
 
@@ -190,8 +192,8 @@ func get_recommendations(profile Profile) []string {
 	}()
 
 	output := make([]string, 0)
-	for title := range outputCh {
-		output = append(output, title)
+	for titles := range outputCh {
+		output = append(output, titles...)
 	}
 	return output
 }

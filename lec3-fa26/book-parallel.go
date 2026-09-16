@@ -133,6 +133,71 @@ func is_good_match(book Book, profile Profile) bool {
 		book.Length <= profile.p99th*1.25
 }
 
+func build_profile(ratings Ratings) Profile {
+	var profile Profile
+
+	meanCh := make(chan float64)
+	medianCh := make(chan float64)
+	p99Ch := make(chan float64)
+
+	go func() {
+		mean, _ := stats.Mean(ratings.Ages)
+		meanCh <- mean
+	}()
+
+	go func() {
+		median, _:= stats.Median(ratings.Stars)
+		medianCh <- median
+	}()
+
+	go func() {
+		p99th, _ := stats.Percentile(ratings.Length, 99)
+		p99Ch <- p99th
+	}()
+
+	profile.mean = <-meanCh
+	profile.median = <-medianCh
+	profile.p99th = <-p99Ch
+	return profile
+}
+
+func get_recommendations(profile Profile) []string {
+	outputCh := make(chan []string, 10) // small buffer reduces blocking; unbuffered also works
+	numWorkers := 12
+	n := len(DB.all_books)
+	batch := (n + numWorkers - 1) / numWorkers // ceiling division: at most 12 chunks
+
+	var wg sync.WaitGroup
+	for start := 0; start < n; start += batch {
+		end := min(start+batch, n)
+
+		wg.Add(1)
+		go func(s, e int) {
+			defer wg.Done()
+			output := make([]string,0)
+			for i := s; i < e; i++ {
+				book := DB.all_books[i]
+				if is_good_match(book, profile) {
+					output = append(output, book.Title)
+				}
+			}
+			outputCh <-output
+		}(start, end)
+	}
+
+	// Close the channel after every worker is done, so the range below ends.
+	go func() {
+		wg.Wait()
+		close(outputCh)
+	}()
+
+	output := make([]string, 0)
+	for titles := range outputCh {
+		output = append(output, titles...)
+	}
+	return output
+}
+
 // List of users who made request
 var request_queue = []string{"anna", "bob"}
 
@@ -143,66 +208,16 @@ func main() {
 	for _, user := range request_queue {
 		log.Println("Getting Books: ", user)
 		books := DB.get_books(user)
+		log.Println("Getting Ratings: ", user)
 		ratings := DB.get_all_ratings(books)
 
-		var profile Profile
+		log.Println("Building Profile: ", user)
+		profile := build_profile(ratings)
 
-		meanCh := make(chan float64)
-		medianCh := make(chan float64)
-		p99Ch := make(chan float64)
-
-		go func() {
-			mean, _ := stats.Mean(ratings.Ages)
-			meanCh <- mean
-		}()
-
-		go func() {
-			median, _:= stats.Median(ratings.Stars)
-			medianCh <- median
-		}()
-
-		go func() {
-			p99th, _ := stats.Percentile(ratings.Length, 99)
-			p99Ch <- p99th
-		}()
-
-		profile.mean = <-meanCh
-		profile.median = <-medianCh
-		profile.p99th = <-p99Ch
-
-		outputCh := make(chan string, 100) // small buffer reduces blocking; unbuffered also works
-		numWorkers := 12
-		n := len(DB.all_books)
-		batch := (n + numWorkers - 1) / numWorkers // ceiling division: at most 12 chunks
-
-		var wg sync.WaitGroup
-		for start := 0; start < n; start += batch {
-			end := min(start+batch, n)
-
-			wg.Add(1)
-			go func(s, e int) {
-				defer wg.Done()
-				for i := s; i < e; i++ {
-					book := DB.all_books[i]
-					if is_good_match(book, profile) {
-						outputCh <- book.Title
-					}
-				}
-			}(start, end)
-		}
-
-		// Close the channel after every worker is done, so the range below ends.
-		go func() {
-			wg.Wait()
-			close(outputCh)
-		}()
-
-		output := make([]string, 0)
-		for title := range outputCh {
-			output = append(output, title)
-		}
-
-		log.Println("Books Recommended:", user)
+		log.Println("Getting Recs: ", user)
+		rec_books := get_recommendations(profile)
+		
+		log.Println("Books Recommended:", user, len(rec_books))
 	}
 
 	timeElapsed := time.Now().Sub(start)
